@@ -1,0 +1,23 @@
+# build output
+/build*/
+
+# portable tools (tools\setup_tools.bat)
+/tools/w64devkit
+/tools/SDL2
+/tools/jdk
+/tools/ghidra
+/tools/ghidra_user
+/tools/ghidra_projects
+/tools/_downloads
+
+# original game data: never in the repository
+DATA/
+*.CXT
+*.cxt
+*.STM
+*.stm
+*.EXE
+*.exe
+*.DLL
+*.dll
+*.iso

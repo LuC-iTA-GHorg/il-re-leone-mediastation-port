@@ -1,0 +1,38 @@
+/* Windows resources of lionking.exe (windres): the port's own icon (lionking.ico, drawn by
+ * make_icon.ps1, nothing taken from the game) and version information. The information does not
+ * present the program as a Disney or Media Station product: this is an unofficial port.
+ * windres passes include paths to the preprocessor unquoted and fails on paths with spaces
+ * ("GAME SHOTS"): compile it from a copy in the build folder (see build.bat). */
+#include <winver.h>
+
+1 ICON "lionking.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1, 0, 0, 0
+PRODUCTVERSION  1, 0, 0, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "041004B0"
+		BEGIN
+			VALUE "CompanyName",      "LuC-iTA-GHorg (port non ufficiale)"
+			VALUE "FileDescription",  "Il Re Leone - port SDL2 non ufficiale del motore Media Station"
+			VALUE "FileVersion",      "1.0.0.0"
+			VALUE "InternalName",     "lionking"
+			VALUE "OriginalFilename", "IlReLeone.exe"
+			VALUE "ProductName",      "Il Re Leone - Libro Animato Interattivo (port SDL2)"
+			VALUE "ProductVersion",   "1.0.0.0"
+			VALUE "LegalCopyright",   "Codice del port: LuC-iTA-GHorg. Il gioco e i suoi dati appartengono ai rispettivi proprietari e non sono inclusi."
+			VALUE "Comments",         "Port non ufficiale, non affiliato con Disney. Richiede i file del CD originale."
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x0410, 1200
+	END
+END
