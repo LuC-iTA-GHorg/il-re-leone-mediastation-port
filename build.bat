@@ -84,6 +84,7 @@ if "%DATA_DIR%"=="" (
 )
 echo      translating the game scripts from "%DATA_DIR%" into build\gamesrc\ ^(do not publish them^)
 if exist "%OUT%\gamesrc" rmdir /s /q "%OUT%\gamesrc"
+mkdir "%OUT%\gamesrc" || goto :error
 "%OUT%\msdump.exe" transpile "%DATA_DIR%" "%OUT%\gamesrc" >nul || goto :error
 for %%f in ("%OUT%\gamesrc\*.c") do set "GAME_SRC=!GAME_SRC! "%%~ff""
 :have_scripts
