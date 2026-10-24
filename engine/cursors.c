@@ -13,6 +13,11 @@
 #include "god.h"
 #include "runtime.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #define MAX_CURSORS 64
 
 typedef struct {
@@ -91,6 +96,43 @@ static const uint8_t *ne_resource(uint16_t type, const char *name, uint16_t num,
 }
 
 /* Win16 cursor: hotspot (2 x u16) then a monochrome DIB whose height covers XOR + AND masks. */
+#ifdef _WIN32
+/* SDL 2 turns every cursor into a colour (ARGB) cursor: Windows draws it with soft grey edges
+ * and shows the "inverted" pixels (AND 1, XOR 1) black. The exe makes a monochrome cursor
+ * from the AND/XOR planes (CreateCursor), sharp and with true inversion: build that one and
+ * put it in place of SDL's. SDL_Cursor is {next, driverdata}, with driverdata the HCURSOR in
+ * the Windows video driver of SDL 2, which also destroys it in SDL_FreeCursor. */
+struct sdl2_cursor {
+	struct sdl2_cursor *next;
+	void *driverdata;
+};
+
+static void use_monochrome_hcursor(SDL_Cursor *cur, const uint8_t *xor_bits,
+	const uint8_t *and_bits, int stride, int w, int h, int hx, int hy) {
+	uint8_t andp[64 * 64 / 8], xorp[64 * 64 / 8];
+	int wstride = (w + 15) / 16 * 2; /* CreateCursor: top-down rows, WORD aligned */
+	for (int y = 0; y < h; y++) {
+		memcpy(andp + y * wstride, and_bits + (h - 1 - y) * stride, (size_t)wstride);
+		memcpy(xorp + y * wstride, xor_bits + (h - 1 - y) * stride, (size_t)wstride);
+	}
+	HCURSOR hc = CreateCursor(GetModuleHandle(NULL), hx, hy, w, h, andp, xorp);
+	if (!hc)
+		return;
+	struct sdl2_cursor *sc = (struct sdl2_cursor *)cur;
+	ICONINFO ii;
+	if (sc->driverdata && GetIconInfo((HICON)sc->driverdata, &ii)) {
+		if (ii.hbmMask)
+			DeleteObject(ii.hbmMask);
+		if (ii.hbmColor)
+			DeleteObject(ii.hbmColor);
+		DestroyCursor((HCURSOR)sc->driverdata);
+		sc->driverdata = hc;
+	} else {
+		DestroyCursor(hc); /* not the expected SDL layout: keep SDL's cursor */
+	}
+}
+#endif
+
 static SDL_Cursor *make_cursor(const char *group_name, int *hidden) {
 	uint32_t len;
 	const uint8_t *g = ne_resource(12, group_name, 0, &len); /* RT_GROUP_CURSOR */
@@ -113,31 +155,36 @@ static SDL_Cursor *make_cursor(const char *group_name, int *hidden) {
 	const uint8_t *and_bits = xor_bits + stride * h;
 	if (and_bits + stride * h > c + len)
 		return NULL;
-	SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
-	if (!s)
-		return NULL;
+	/* SDL bits: mask 1 data 1 black, mask 1 data 0
+	 * white, mask 0 data 0 transparent, mask 0 data 1 inverted. */
+	uint8_t data[64 * 64 / 8], mask[64 * 64 / 8];
+	int sw = (w + 7) / 8 * 8, sstride = sw / 8;
+	memset(data, 0, sizeof(data));
+	memset(mask, 0, sizeof(mask));
 	int visible = 0;
 	for (int y = 0; y < h; y++) {
 		/* DIB rows are bottom-up */
 		const uint8_t *xr = xor_bits + (h - 1 - y) * stride;
 		const uint8_t *ar = and_bits + (h - 1 - y) * stride;
-		uint32_t *row = (uint32_t *)((uint8_t *)s->pixels + y * s->pitch);
 		for (int x = 0; x < w; x++) {
 			int a = (ar[x >> 3] >> (7 - (x & 7))) & 1;
 			int xo = (xr[x >> 3] >> (7 - (x & 7))) & 1;
-			uint32_t px;
-			if (!a)
-				px = xo ? 0xffffffffu : 0xff000000u;
-			else
-				px = xo ? 0xff000000u : 0x00000000u; /* inverted pixels shown black */
-			if (px >> 24)
+			int d = a ? xo : !xo, m = !a;
+			uint8_t bit = (uint8_t)(0x80 >> (x & 7));
+			if (d)
+				data[y * sstride + (x >> 3)] |= bit;
+			if (m)
+				mask[y * sstride + (x >> 3)] |= bit;
+			if (d || m)
 				visible = 1;
-			row[x] = px;
 		}
 	}
 	*hidden = !visible;
-	SDL_Cursor *cur = SDL_CreateColorCursor(s, hx, hy);
-	SDL_FreeSurface(s);
+	SDL_Cursor *cur = SDL_CreateCursor(data, mask, sw, h, hx, hy);
+#ifdef _WIN32
+	if (cur)
+		use_monochrome_hcursor(cur, xor_bits, and_bits, stride, w, h, hx, hy);
+#endif
 	return cur;
 }
 

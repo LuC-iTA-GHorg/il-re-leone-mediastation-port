@@ -24,18 +24,21 @@ static const MsRect *clip_list;
 static int nclip_list;
 static MsValue on_sync_args[16];
 static int on_sync_n;
+static int stretch;       /* VIDEO_ASPECT_STRETCH: no logical size, the frame fills the window */
+static int instant_fades; /* see VideoOptions */
 
 #define DEFAULT_FADE_TIME 0.5 /* LIONKING.EXE DS:2F12 */
 #define MAX_FADE_TIME 5.0     /* LIONKING.EXE DS:2F0A */
 #define DEFAULT_START 1
 #define DEFAULT_COUNT 254
 
-int video_init(int fullscreen, int scale) {
-	if (scale < 1)
-		scale = 1;
+int video_init(const VideoOptions *opt) {
+	int scale = opt->scale < 1 ? 1 : opt->scale;
+	stretch = opt->aspect == VIDEO_ASPECT_STRETCH;
+	instant_fades = opt->instant_fades;
 	window = SDL_CreateWindow("Il Re Leone - Libro Animato", SDL_WINDOWPOS_CENTERED,
 		SDL_WINDOWPOS_CENTERED, SCREEN_W * scale, SCREEN_H * scale,
-		SDL_WINDOW_RESIZABLE | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+		SDL_WINDOW_RESIZABLE | (opt->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 	if (!window)
 		return 0;
 	/* system palette static colours: entry 0 black, entry 255 white (see video_set_palette) */
@@ -45,8 +48,13 @@ int video_init(int fullscreen, int scale) {
 		renderer = SDL_CreateRenderer(window, -1, 0);
 	if (!renderer)
 		return 0;
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-	SDL_RenderSetLogicalSize(renderer, SCREEN_W, SCREEN_H);
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, opt->smooth ? "1" : "0");
+	/* 4:3 and integer: black bars, mouse events in game pixels (see video_event_to_game);
+	 * stretched: the texture is copied over the whole window */
+	if (!stretch) {
+		SDL_RenderSetLogicalSize(renderer, SCREEN_W, SCREEN_H);
+		SDL_RenderSetIntegerScale(renderer, opt->aspect == VIDEO_ASPECT_INTEGER);
+	}
 	texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
 		SCREEN_W, SCREEN_H);
 	return texture != NULL;
@@ -69,10 +77,30 @@ void video_toggle_fullscreen(void) {
 	SDL_SetWindowFullscreen(window, (f & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
 }
 
+static void stretched_to_game(int *x, int *y) {
+	int ww, wh;
+	SDL_GetWindowSize(window, &ww, &wh);
+	if (ww > 0 && wh > 0) {
+		*x = (int)floor((double)*x * SCREEN_W / ww);
+		*y = (int)floor((double)*y * SCREEN_H / wh);
+	}
+}
+
+void video_event_to_game(int *x, int *y) {
+	if (stretch)
+		stretched_to_game(x, y);
+}
+
 void video_window_to_game(int wx, int wy, int *gx, int *gy) {
-	float lx, ly;
-	SDL_RenderWindowToLogical(renderer, wx, wy, &lx, &ly);
-	int x = (int)lx, y = (int)ly;
+	int x = wx, y = wy;
+	if (stretch) {
+		stretched_to_game(&x, &y);
+	} else {
+		float lx, ly;
+		SDL_RenderWindowToLogical(renderer, wx, wy, &lx, &ly);
+		x = (int)lx;
+		y = (int)ly;
+	}
 	*gx = x < 0 ? 0 : x >= SCREEN_W ? SCREEN_W - 1 : x;
 	*gy = y < 0 ? 0 : y >= SCREEN_H ? SCREEN_H - 1 : y;
 }
@@ -449,8 +477,22 @@ const uint8_t *video_palette(void) {
 	return pal;
 }
 
+static int SDLCALL take_alt_enter(void *found, SDL_Event *ev) {
+	if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_RETURN && (ev->key.keysym.mod & KMOD_ALT)) {
+		*(int *)found = 1;
+		return 0;
+	}
+	return 1;
+}
+
+/* A fade does not dispatch messages (1190:a9be), so input waits for its end; Alt+Enter, a
+ * port addition, is taken out of the queue and served at once. */
 static void present_pumping(void) {
+	int alt_enter = 0;
 	SDL_PumpEvents();
+	SDL_FilterEvents(take_alt_enter, &alt_enter);
+	if (alt_enter)
+		video_toggle_fullscreen();
 	video_present();
 }
 
@@ -458,7 +500,10 @@ static void present_pumping(void) {
  * at most 1024, and each component is src + (dst - src) * k / 1024 with integer division
  * (truncated towards zero), clamped to 0..255. The original loops without waiting until
  * now >= start + time (a time <= 0 sets the target at once), then sets the exact target.
- * Fades longer than MAX_FADE_TIME are shortened (palette manager 1190:a37e, DS:2F0A). */
+ * Fades longer than MAX_FADE_TIME are shortened (palette manager 1190:a37e, DS:2F0A).
+ * On a screen without a palette (16/24 bit) the step setter +0x1c (1188:35b2 -> 1188:4c60)
+ * returns 1 at once because [obj+0x0A] == 0, the loop of 1190:a9be stops and only the final
+ * palette is set (+0x20, 1188:35ce): that is the "instant fades" option. */
 static uint8_t fade_component(uint8_t s, uint8_t t, long k) {
 	long r = s + ((long)t - s) * k / 1024;
 	return (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
@@ -468,6 +513,8 @@ static void fade_to(const uint8_t *target, double time, int start, int count) {
 	limit_range(&start, &count);
 	if (time > MAX_FADE_TIME)
 		time = MAX_FADE_TIME;
+	if (instant_fades)
+		time = 0;
 	uint8_t from[768], mid[768];
 	memcpy(from, pal, 768);
 	memcpy(mid, pal, 768);

@@ -58,7 +58,8 @@ as the screen blit). In The Lion King no image or sprite uses decompression at l
   +0x20 sets the final one (`1188:35ce` -> `4d2c`). The loop `1190:a9be` stops if
   +0x1c returns 1, i.e. when the screen is **not** palettized (`[obj+0x0A] == 0`): on a
   16/24-bit screen the original's fades jump straight to the final palette. The port
-  reproduces the 256-color case (the one the game was made for).
+  reproduces the 256-color case (the one the game was made for) by default; the option
+  `--fades instant` (`fades=instant` in `lionking.ini`) gives the 16/24-bit behaviour.
 - Duration, steps, 5 s maximum, no wait: already verified (ORIGINAL.md).
 - The stream's "load palette" command saves only the registered palette; it reaches the screen
   only with 301/302 (like the port).
@@ -127,6 +128,14 @@ part). Visible (`1068:0728`): flag and dissolve != 0. Invalidation: the actor's 
   **the whole stage** (`1190:8ec8` -> `1190:a10a`), otherwise only the dirty region
   (`1190:8e76` -> `1190:a0e8`); then copies to the window (+0x14 of the platform, `1188:3608`)
   and the "on sync" transition. **Corrected** (`update_all` after re-enabling).
+- Copy to the window and the monitor: the exe copies at every screen event without waiting for
+  the monitor and the loop `1188:fb70` never sleeps, so a state that lasts until the next pass
+  is visible for microseconds. Example: a movie that ends in the pre-display service
+  (`1190:fbc4` -> `fda4` -> stop reason 4) is erased at once, while the MovieEnd that plays it
+  again (`menu_timon_idle` in the menu) waits for the queue of the next pass (`1188:fd14`). In
+  the port every present lasts a whole frame (vsync): Timon disappeared for 17 ms (flicker).
+  **Port**: drawing is unchanged, the copy to the window waits until the engine queue is empty
+  (at most 50 ms after the last one; `present_screen` in `runtime.c`).
 
 ## Movie (class `1190:fec6`, constructor `1190:de58`)
 

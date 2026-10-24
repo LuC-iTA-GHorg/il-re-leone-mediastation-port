@@ -336,8 +336,27 @@ static void draw_region(void) {
 static int auto_update = 1, force_flush;
 static uint32_t disable_token;
 
-static void flush_to_display(void) {
+/* Copy of the frame buffer to the window. LIONKING.EXE copies at every screen event
+ * (1190:8e2e) and never waits for the monitor (1188:fb70 never sleeps), so a state that only
+ * lasts until the next pass of the engine loop is on screen for microseconds: e.g. a movie
+ * that ends in the pre-display service (1190:fbc4 -> fda4 -> f2a6 stop, reason 4) is erased
+ * at once, while the MovieEnd that plays it again (menu_timon_idle in the menu) waits for the
+ * engine queue of the next pass (1188:fd14). Here every present lasts a whole vsync frame,
+ * so such a state flickered: the copy waits until the engine queue is empty (drawing is
+ * unchanged), at most PRESENT_MAX_DEFER ms after the last one. */
+#define PRESENT_MAX_DEFER 50
+static uint32_t last_present;
+
+static void present_screen(void) {
+	uint32_t t = SDL_GetTicks();
+	if (nincoming > 0 && t - last_present < PRESENT_MAX_DEFER)
+		return;
+	last_present = t;
 	video_present();
+}
+
+static void flush_to_display(void) {
+	present_screen();
 	video_do_transition_on_sync();
 }
 
@@ -392,7 +411,7 @@ static void auto_update_and_flush(void) {
 	} else if (auto_update && ndirty > 0) {
 		update_dirty();
 	} else {
-		video_present(); /* mouse cursor and the like */
+		present_screen(); /* mouse cursor and the like */
 	}
 }
 
@@ -1190,27 +1209,35 @@ static void poll_system_events(void) {
 		case SDL_QUIT:
 			running = 0;
 			break;
+		/* With a logical size set, SDL already delivers mouse event coordinates in game
+		 * (logical) pixels; converting them again misplaced every click when scaled.
+		 * Stretched (no logical size) video_event_to_game converts window pixels. */
 		case SDL_MOUSEMOTION: {
-			int ww, wh;
-			SDL_GetWindowSize(SDL_GetWindowFromID(ev.motion.windowID), &ww, &wh);
-			if (ev.motion.x < 0 || ev.motion.y < 0 || ev.motion.x >= ww || ev.motion.y >= wh) {
-				m.type = IN_LEAVE; /* moved out of the client area while captured */
+			int x = ev.motion.x, y = ev.motion.y;
+			video_event_to_game(&x, &y);
+			if (x < 0 || y < 0 || x >= SCREEN_W || y >= SCREEN_H) {
+				m.type = IN_LEAVE; /* moved out of the game area while captured */
 			} else {
 				m.type = IN_MOVE;
-				video_window_to_game(ev.motion.x, ev.motion.y, &m.x, &m.y);
+				m.x = x;
+				m.y = y;
 			}
 			input_push(m);
 			break;
 		}
 		case SDL_MOUSEBUTTONDOWN:
-		case SDL_MOUSEBUTTONUP:
+		case SDL_MOUSEBUTTONUP: {
 			if (ev.button.button != SDL_BUTTON_LEFT && ev.button.button != SDL_BUTTON_MIDDLE &&
 				ev.button.button != SDL_BUTTON_RIGHT)
 				break;
+			int x = ev.button.x, y = ev.button.y;
+			video_event_to_game(&x, &y);
 			m.type = ev.type == SDL_MOUSEBUTTONDOWN ? IN_DOWN : IN_UP;
-			video_window_to_game(ev.button.x, ev.button.y, &m.x, &m.y);
+			m.x = x < 0 ? 0 : x >= SCREEN_W ? SCREEN_W - 1 : x;
+			m.y = y < 0 ? 0 : y >= SCREEN_H ? SCREEN_H - 1 : y;
 			input_push(m);
 			break;
+		}
 		case SDL_KEYDOWN:
 			if (ev.key.keysym.sym == SDLK_RETURN && (ev.key.keysym.mod & KMOD_ALT)) {
 				video_toggle_fullscreen();
@@ -1314,7 +1341,7 @@ void rt_run(const char *data_dir, uint16_t start_screen) {
 		    (had_events || had_input || sync == RT_SYNC_CHANGED || ndirty > 0 || force_flush))
 			auto_update_and_flush();
 		else
-			video_present();
+			present_screen();
 		audio_service();
 		if (nincoming == 0 && inq_count == 0) {
 			uint32_t wait = ms_to_next_alarm();

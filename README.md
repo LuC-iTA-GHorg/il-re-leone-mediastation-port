@@ -50,7 +50,8 @@ compiled into the executable (`msdump transpile`, see [docs/RECOMPILATION.md](do
 Do not publish those generated files. Without game data at build time the port still builds:
 the scripts then run in the bytecode interpreter.
 
-Output: `build\lionking.exe`, `build\SDL2.dll` and `build\msdump.exe` (data inspector).
+Output: `build\lionking.exe`, `build\launcher.exe` (options window), `build\SDL2.dll` and
+`build\msdump.exe` (data inspector).
 
 ## Running
 
@@ -59,7 +60,23 @@ run.bat                                    rem = build\lionking.exe --data ..\DA
 build\lionking.exe --data FOLDER           rem FOLDER: the one with BOOT.STM
 ```
 
-Options: `--fullscreen`, `--scale N` (window N times 640x480, default 2), `--exe FILE` (the
+`build\launcher.exe` opens a window with the display options (each with a line of explanation,
+in Italian), saves them to `lionking.ini` next to the executable and starts the game (Gioca) as
+`run.bat` does. The game reads `lionking.ini` (`key=value` lines: `fullscreen`, `scale`,
+`aspect`, `filter`, `fades`), then the command line, which wins; `--no-ini` ignores the file
+(the automatic tests use it).
+
+| Option | Values | Effect |
+|---|---|---|
+| `--fullscreen` / `--windowed` | | full screen / window (Alt+Enter also works during movies and fades) |
+| `--scale N` | 1-4, default 2 | window N times 640x480 |
+| `--aspect` | `4:3` (default), `stretch`, `integer` | 4:3 with black bars; fill the window, distorting; integer factors only (pixel perfect) |
+| `--filter` | `sharp` (default), `smooth` | nearest-pixel or linear scaling |
+| `--fades` | `palette` (default), `instant` | timed palette fades as the exe on a 256-colour screen, or a jump to the final palette as the exe on a 16/24-bit screen (`1190:a9be`, `1188:4c60`; what OTVDM shows today) |
+
+The game is always drawn at 640x480; the mouse stays aligned in every mode.
+
+Other options: `--exe FILE` (the
 original `LIONKING.EXE`, default `FOLDER\..\LIONKING.EXE`), `--screen ID` (start from a screen),
 `--interpret` (run the scripts in the interpreter instead of the recompiled C), `--trace`
 (events, loads and scripts on stderr). Timed input for repeatable tests: `--click MS:X:Y`,

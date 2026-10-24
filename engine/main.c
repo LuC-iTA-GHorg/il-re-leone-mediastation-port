@@ -1,8 +1,18 @@
 /* Il Re Leone - Libro Animato Interattivo (Disney / Media Station, 1995): SDL2 port.
  *
- *   lionking.exe [--data DIR] [--exe FILE] [--fullscreen] [--scale N] [--screen ID] [--trace]
- *                [--interpret] [--click MS:X:Y]... [--mouse MS:down|up|move:X:Y]... [--key MS:CODE]...
- *                [--shot MS:FILE.bmp]... [--quit-after MS] [--seed N]
+ *   lionking.exe [--data DIR] [--exe FILE] [--fullscreen|--windowed] [--scale N]
+ *                [--fades palette|instant] [--aspect 4:3|stretch|integer] [--filter sharp|smooth]
+ *                [--no-ini] [--screen ID] [--trace] [--interpret] [--click MS:X:Y]...
+ *                [--mouse MS:down|up|move:X:Y]... [--key MS:CODE]... [--shot MS:FILE.bmp]...
+ *                [--quit-after MS] [--seed N]
+ *
+ * Display options are read first from lionking.ini next to the executable (written by
+ * launcher.exe: lines "key=value" with the keys fullscreen, scale, fades, aspect, filter and the
+ * values of the options above), then from the command line, which wins. --no-ini ignores the
+ * file (the automatic tests use it). --fades instant: palette fades jump to the final palette,
+ * as the exe does on a 16/24-bit screen (what OTVDM shows today); palette (default): timed
+ * fades, as the exe on the 256-colour screen the game was made for. --aspect: 4:3 with black
+ * bars (default), stretch to fill the screen, or integer scale factors only.
  *
  * --data: folder with BOOT.STM and the .CXT files (default: DATA next to the executable, then
  * ..\DATA, ..\..\DATA). --exe: the original LIONKING.EXE, for the cursors (default: next to the
@@ -31,6 +41,58 @@ static int file_exists(const char *p) {
 	return f != NULL;
 }
 
+/* Sets one display option from the ini file or the command line (0 = unknown value). Italian
+ * values are accepted too, as the launcher shows them. */
+static int set_option(VideoOptions *o, const char *key, const char *v) {
+	if (!strcmp(key, "fullscreen"))
+		o->fullscreen = atoi(v) != 0 || !strcmp(v, "yes") || !strcmp(v, "si") || !strcmp(v, "true");
+	else if (!strcmp(key, "scale"))
+		o->scale = atoi(v);
+	else if (!strcmp(key, "fades") && (!strcmp(v, "palette") || !strcmp(v, "instant") || !strcmp(v, "istantanee")))
+		o->instant_fades = strcmp(v, "palette") != 0;
+	else if (!strcmp(key, "aspect") && !strcmp(v, "4:3"))
+		o->aspect = VIDEO_ASPECT_4_3;
+	else if (!strcmp(key, "aspect") && !strcmp(v, "stretch"))
+		o->aspect = VIDEO_ASPECT_STRETCH;
+	else if (!strcmp(key, "aspect") && (!strcmp(v, "integer") || !strcmp(v, "intera")))
+		o->aspect = VIDEO_ASPECT_INTEGER;
+	else if (!strcmp(key, "filter") && (!strcmp(v, "sharp") || !strcmp(v, "nitido")))
+		o->smooth = 0;
+	else if (!strcmp(key, "filter") && (!strcmp(v, "smooth") || !strcmp(v, "morbido")))
+		o->smooth = 1;
+	else
+		return 0;
+	return 1;
+}
+
+static void read_ini(VideoOptions *o) {
+	char *base = SDL_GetBasePath();
+	char path[1024], line[256];
+	snprintf(path, sizeof(path), "%slionking.ini", base ? base : "");
+	SDL_free(base);
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return;
+	while (fgets(line, sizeof(line), f)) {
+		char *eq = strchr(line, '=');
+		if (line[0] == ';' || line[0] == '#' || line[0] == '[' || !eq)
+			continue;
+		*eq = 0;
+		char *key = line, *v = eq + 1;
+		while (*key == ' ' || *key == '\t')
+			key++;
+		char *e = eq;
+		while (e > key && (e[-1] == ' ' || e[-1] == '\t'))
+			*--e = 0;
+		while (*v == ' ' || *v == '\t')
+			v++;
+		v[strcspn(v, " \t\r\n;#")] = 0;
+		if (!set_option(o, key, v))
+			ms_warn("%s: unknown setting %s=%s", path, key, v);
+	}
+	fclose(f);
+}
+
 static int find_data(char *out, size_t cap, const char *base) {
 	static const char *rel[] = {"DATA", "../DATA", "../../DATA", "."};
 	for (size_t i = 0; i < sizeof(rel) / sizeof(rel[0]); i++) {
@@ -46,8 +108,14 @@ static int find_data(char *out, size_t cap, const char *base) {
 
 int main(int argc, char **argv) {
 	char data[1024] = "", exe[1024] = "";
-	int fullscreen = 0, scale = 2;
+	VideoOptions vo = {0, 2, VIDEO_ASPECT_4_3, 0, 0};
 	uint16_t screen = 0;
+	int use_ini = 1;
+	for (int i = 1; i < argc; i++)
+		if (!strcmp(argv[i], "--no-ini"))
+			use_ini = 0;
+	if (use_ini)
+		read_ini(&vo);
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i];
 		const char *v = i + 1 < argc ? argv[i + 1] : NULL;
@@ -58,9 +126,16 @@ int main(int argc, char **argv) {
 			snprintf(exe, sizeof(exe), "%s", v);
 			i++;
 		} else if (!strcmp(a, "--fullscreen")) {
-			fullscreen = 1;
-		} else if (!strcmp(a, "--scale") && v) {
-			scale = atoi(v);
+			vo.fullscreen = 1;
+		} else if (!strcmp(a, "--windowed")) {
+			vo.fullscreen = 0;
+		} else if (!strcmp(a, "--no-ini")) {
+		} else if (v && (!strcmp(a, "--scale") || !strcmp(a, "--fades") || !strcmp(a, "--aspect") ||
+				   !strcmp(a, "--filter"))) {
+			if (!set_option(&vo, a + 2, v)) {
+				fprintf(stderr, "bad value %s for %s (see the comment at the top of main.c)\n", v, a);
+				return 2;
+			}
 			i++;
 		} else if (!strcmp(a, "--screen") && v) {
 			screen = (uint16_t)atoi(v);
@@ -120,7 +195,7 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
 		return 1;
 	}
-	if (!video_init(fullscreen, scale)) {
+	if (!video_init(&vo)) {
 		fprintf(stderr, "video: %s\n", SDL_GetError());
 		return 1;
 	}

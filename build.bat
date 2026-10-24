@@ -2,7 +2,8 @@
 rem Builds the SDL2 port of Disney's Animated Storybook: The Lion King (Media Station engine)
 rem with the portable GCC in tools\w64devkit and SDL2 in tools\SDL2. Nothing is installed.
 rem   build.bat [debug^|clean]
-rem Output in build\: lionking.exe (the game), msdump.exe (data inspector), SDL2.dll.
+rem Output in build\: lionking.exe (the game), launcher.exe (options window), msdump.exe (data
+rem inspector), SDL2.dll.
 setlocal EnableDelayedExpansion
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
@@ -48,20 +49,23 @@ set "DATA_SRC="%E%\datafile.c" "%E%\value.c" "%E%\bitmap.c" "%E%\god.c" "%E%\act
 rem script VM; the recompiled scripts are chosen after msdump is built (see below)
 set "SCRIPT_SRC="%E%\script.c" "%E%\script_rt.c""
 
-rem Windows resources (tools\package\lionking.rc for the game, tools.rc for the tools): icon
+rem Windows resources (tools\package\lionking.rc for the game, launcher.rc for the options window,
+rem tools.rc for the tools): icon
 rem and version information on every exe, so antivirus heuristics do not flag bare unsigned
 rem executables. windres fails on include paths with spaces, so it compiles copies in the
 rem build folder.
 if not exist "%OUT%\res" mkdir "%OUT%\res"
 copy /y "%ROOT%\tools\package\lionking.rc" "%OUT%\res\" >nul || goto :error
 copy /y "%ROOT%\tools\package\tools.rc" "%OUT%\res\" >nul || goto :error
+copy /y "%ROOT%\tools\package\launcher.rc" "%OUT%\res\" >nul || goto :error
 copy /y "%ROOT%\tools\package\lionking.ico" "%OUT%\res\" >nul || goto :error
 pushd "%OUT%\res"
 windres -o ..\lionking_res.o lionking.rc || (popd & goto :error)
 windres -o ..\tools_res.o tools.rc || (popd & goto :error)
+windres -o ..\launcher_res.o launcher.rc || (popd & goto :error)
 popd
 
-echo [1/3] msdump
+echo [1/4] msdump
 gcc %CFLAGS% -I"%E%" -o "%OUT%\msdump.exe" "%ROOT%\tools\msdump\msdump.c" "%ROOT%\tools\msdump\transpile.c" %SCRIPT_SRC% "%E%\script_native_none.c" %DATA_SRC% "%E%\runtime_stub.c" "%OUT%\tools_res.o" || goto :error
 
 rem Recompiled game scripts:
@@ -89,13 +93,17 @@ mkdir "%OUT%\gamesrc" || goto :error
 for %%f in ("%OUT%\gamesrc\*.c") do set "GAME_SRC=!GAME_SRC! "%%~ff""
 :have_scripts
 
-echo [2/3] lionking (SDL2)
+echo [2/4] lionking (SDL2)
 gcc %CFLAGS% -I"%E%" -I"%SDL2_DIR%\include\SDL2" -o "%OUT%\lionking.exe" ^
 	"%E%\main.c" "%E%\runtime.c" %SCRIPT_SRC% %GAME_SRC% "%E%\video.c" "%E%\audio.c" "%E%\cursors.c" ^
-	%DATA_SRC% "%OUT%\lionking_res.o" -L"%SDL2_DIR%\lib" -lmingw32 -lSDL2main -lSDL2 -lm || goto :error
+	%DATA_SRC% "%OUT%\lionking_res.o" -L"%SDL2_DIR%\lib" -lmingw32 -lSDL2main -lSDL2 -lgdi32 -lm || goto :error
 
-echo [3/3] SDL2.dll
+echo [3/4] SDL2.dll
 copy /y "%SDL2_DIR%\bin\SDL2.dll" "%OUT%\" >nul || goto :error
+
+rem options window: writes lionking.ini and starts the game (plain Win32, no SDL)
+echo [4/4] launcher
+gcc %CFLAGS% -municode -mwindows -o "%OUT%\launcher.exe" "%ROOT%\tools\launcher\launcher.c" "%OUT%\launcher_res.o" -lgdi32 || goto :error
 
 echo.
 echo OK: %OUT%\lionking.exe
