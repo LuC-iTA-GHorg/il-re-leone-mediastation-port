@@ -61,15 +61,15 @@ build\lionking.exe --data FOLDER           rem FOLDER: the one with BOOT.STM
 ```
 
 `build\launcher.exe` opens a window with the display options (each with a line of explanation,
-in Italian), saves them to `lionking.ini` next to the executable and starts the game (Gioca) as
-`run.bat` does. The game reads `lionking.ini` (`key=value` lines: `fullscreen`, `scale`,
+in Italian), saves them to `lionking.ini` next to the executable (Salva) and starts the game
+(Gioca: `lionking.exe` in the build folder, `IlReLeone.exe` in the package; Esci closes it). The game reads `lionking.ini` (`key=value` lines: `fullscreen`, `scale`,
 `aspect`, `filter`, `fades`), then the command line, which wins; `--no-ini` ignores the file
 (the automatic tests use it).
 
 | Option | Values | Effect |
 |---|---|---|
 | `--fullscreen` / `--windowed` | | full screen / window (Alt+Enter also works during movies and fades) |
-| `--scale N` | 1-4, default 2 | window N times 640x480 |
+| `--scale N` | >= 1 (1-4 in the launcher), default 2 | window N times 640x480 |
 | `--aspect` | `4:3` (default), `stretch`, `integer` | 4:3 with black bars; fill the window, distorting; integer factors only (pixel perfect) |
 | `--filter` | `sharp` (default), `smooth` | nearest-pixel or linear scaling |
 | `--fades` | `palette` (default), `instant` | timed palette fades as the exe on a 256-colour screen, or a jump to the final palette as the exe on a 16/24-bit screen (`1190:a9be`, `1188:4c60`; what OTVDM shows today) |

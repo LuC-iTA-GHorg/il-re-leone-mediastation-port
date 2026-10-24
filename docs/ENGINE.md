@@ -22,7 +22,7 @@ code is organized.
 | `runtime.c/.h` | the player: event loop, timers, document (screen changes and context loading), root stage, dirty areas, mouse, keyboard, sound device, timed input for tests |
 | `video.c/.h` | SDL2: 640x480 8-bit framebuffer, palette, clipped drawing, lines, palette transitions, screenshots |
 | `audio.c` | SDL2: 32-voice software mixer (44.1 kHz stereo), end of sounds |
-| `cursors.c` | cursors from the NE resources of `LIONKING.EXE`, permanent/temporary cursor |
+| `cursors.c` | cursors from the NE resources of `LIONKING.EXE` (on Windows sharp monochrome ones made with `CreateCursor`, as the exe does), permanent/temporary cursor |
 | `runtime_stub.c` | empty runtime for `msdump` (data only) |
 | `main.c` | options, SDL startup, data lookup |
 
